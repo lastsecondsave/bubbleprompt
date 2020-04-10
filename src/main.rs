@@ -1,3 +1,5 @@
+use std::str::Chars;
+
 #[derive(Copy, Clone)]
 struct Layer {
     fg: u8,
@@ -68,7 +70,7 @@ fn generate(template: &str) -> Result<String, String> {
     Ok(buffer)
 }
 
-fn read_meta(chars: &mut std::str::Chars) -> Result<Layer, String> {
+fn read_meta(chars: &mut Chars) -> Result<Layer, String> {
     let mut buffer = String::new();
 
     let meta: Vec<&str> = {
