@@ -8,11 +8,21 @@ const OPEN_BRACE: char = '{';
 const CLOSE_BRACE: char = '}';
 
 fn main() {
-    let template = std::env::args().nth(1).expect("no template");
-    print!("{}", generate(&template));
+    let template = match std::env::args().nth(1) {
+        Some(template) => template,
+        None => {
+            eprintln!("No template provided");
+            return;
+        }
+    };
+
+    match generate(&template) {
+        Ok(result) => println!("{}", result),
+        Err(e) => eprintln!("{}", e),
+    }
 }
 
-fn generate(template: &str) -> String {
+fn generate(template: &str) -> Result<String, String> {
     let mut buffer = String::new();
 
     let mut layers: Vec<Layer> = Vec::new();
@@ -33,7 +43,7 @@ fn generate(template: &str) -> String {
 
         match c {
             OPEN_BRACE => {
-                layers.push(read_meta(&mut chars));
+                layers.push(read_meta(&mut chars)?);
                 last_brace = Some(OPEN_BRACE);
             }
             CLOSE_BRACE => {
@@ -55,25 +65,34 @@ fn generate(template: &str) -> String {
         ));
     }
 
-    buffer
+    Ok(buffer)
 }
 
-fn read_meta(chars: &mut std::str::Chars) -> Layer {
-    let mut meta = String::new();
+fn read_meta(chars: &mut std::str::Chars) -> Result<Layer, String> {
+    let mut buffer = String::new();
 
-    for c in chars {
-        if c == ':' {
-            break;
+    let meta: Vec<&str> = {
+        for c in chars.take_while(|c| *c != ':') {
+            buffer.push(c);
         }
-        meta.push(c);
+        buffer.split(',').collect()
+    };
+
+    if meta.len() != 2 {
+        return Err("Both fg and bg should be specified".to_string());
     }
 
-    let meta: Vec<u8> = meta.split(',').map(|x| x.parse::<u8>().unwrap()).collect();
+    let fg: u8 = match meta[0].parse::<u8>() {
+        Ok(fg) => fg,
+        Err(e) => return Err(format!("Invalid fg: {}", e.to_string())),
+    };
 
-    Layer {
-        fg: meta[0],
-        bg: meta[1],
-    }
+    let bg: u8 = match meta[1].parse::<u8>() {
+        Ok(bg) => bg,
+        Err(e) => return Err(format!("Invalid bg: {}", e.to_string())),
+    };
+
+    Ok(Layer { fg, bg })
 }
 
 fn gen_transition(curr_layer: Option<&Layer>, next_layer: Option<&Layer>, brace: char) -> String {
@@ -118,4 +137,65 @@ fn esc_change_bg(color: u8, buffer: &mut String) {
 
 fn esc_reset_color(buffer: &mut String) {
     buffer.push_str("\x1b[0m");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_layer() {
+        assert_eq!(
+            generate("{0,1:xxx}"),
+            Ok("\x1b[38;5;1m\x1b[38;5;0m\x1b[48;5;1mxxx\x1b[0m\x1b[38;5;1m\x1b[0m".to_string())
+        );
+    }
+
+    #[test]
+    fn sequential_layers() {
+        assert_eq!(
+            generate("{0,1:xxx} {100,200:yyy}"),
+            Ok("\x1b[38;5;1m\x1b[38;5;0m\x1b[48;5;1mxxx\x1b[0m\x1b[38;5;1m\x1b[0m \x1b[38;5;200m\x1b[38;5;100m\x1b[48;5;200myyy\x1b[0m\x1b[38;5;200m\x1b[0m".to_string())
+        );
+    }
+
+    #[test]
+    fn overlap_left() {
+        assert_eq!(
+            generate("{0,1:xxx {100,200:yyy}}"),
+            Ok("\x1b[38;5;1m\x1b[38;5;0m\x1b[48;5;1mxxx \x1b[38;5;200m\x1b[38;5;100m\x1b[48;5;200myyy\x1b[0m\x1b[38;5;200m\x1b[0m".to_string())
+        );
+    }
+
+    #[test]
+    fn overlap_right() {
+        assert_eq!(
+            generate("{0,1:{100,200:yyy} xxx}"),
+            Ok("\x1b[38;5;200m\x1b[38;5;100m\x1b[48;5;200myyy\x1b[48;5;1m\x1b[38;5;200m\x1b[38;5;0m xxx\x1b[0m\x1b[38;5;1m\x1b[0m".to_string())
+        );
+    }
+
+    #[test]
+    fn bad_fg() {
+        assert_eq!(
+            generate("{999,1:xxx}"),
+            Err("Invalid fg: number too large to fit in target type".to_string())
+        );
+    }
+
+    #[test]
+    fn bad_bg() {
+        assert_eq!(
+            generate("{1,-9:xxx}"),
+            Err("Invalid bg: invalid digit found in string".to_string())
+        );
+    }
+
+    #[test]
+    fn incomplete_meta() {
+        assert_eq!(
+            generate("{1:xxx}"),
+            Err("Both fg and bg should be specified".to_string())
+        );
+    }
 }
