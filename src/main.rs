@@ -35,28 +35,28 @@ fn generate(template: &str) -> Result<String, String> {
 
     while let Some(c) = chars.next() {
         match last_brace {
-            Some(last_brace) if last_brace != c => {
+            Some(brace) if brace != c => {
                 let next_layer = layers.last();
-                buffer.push_str(&gen_transition(curr_layer.as_ref(), next_layer, last_brace));
+                buffer.push_str(&gen_transition(curr_layer.as_ref(), next_layer, brace));
                 curr_layer = next_layer.cloned();
             }
             _ => (),
         }
 
-        match c {
+        last_brace = match c {
             OPEN_BRACE => {
                 layers.push(read_meta(&mut chars)?);
-                last_brace = Some(OPEN_BRACE);
+                Some(OPEN_BRACE)
             }
             CLOSE_BRACE => {
                 layers.pop();
-                last_brace = Some(CLOSE_BRACE);
+                Some(CLOSE_BRACE)
             }
             _ => {
                 buffer.push(c);
-                last_brace = None;
+                None
             }
-        }
+        };
     }
 
     if let Some(last_brace) = last_brace {
