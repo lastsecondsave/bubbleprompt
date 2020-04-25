@@ -1,9 +1,22 @@
 use std::str::Chars;
 
 #[derive(Copy, Clone)]
+enum Escape {
+    Foreground(u8),
+    Background(u8),
+    Reset,
+}
+
+#[derive(Copy, Clone)]
 struct Layer {
     fg: u8,
     bg: u8,
+}
+
+#[derive(Copy, Clone)]
+enum Shell {
+    Any,
+    Zsh,
 }
 
 const OPEN_BRACE: char = '{';
@@ -18,17 +31,17 @@ fn main() {
         }
     };
 
-    match generate(&template) {
+    match generate(&template, Shell::Any) {
         Ok(result) => println!("{}", result),
         Err(e) => eprintln!("{}", e),
     }
 }
 
-fn generate(template: &str) -> Result<String, String> {
+fn generate(template: &str, shell: Shell) -> Result<String, String> {
     let mut buffer = String::new();
 
     let mut layers: Vec<Layer> = Vec::new();
-    let mut curr_layer: Option<Layer> = None;
+    let mut current_layer: Option<Layer> = None;
     let mut last_brace: Option<char> = None;
 
     let mut chars = template.chars();
@@ -36,9 +49,14 @@ fn generate(template: &str) -> Result<String, String> {
     while let Some(c) = chars.next() {
         match last_brace {
             Some(brace) if brace != c => {
-                let next_layer = layers.last();
-                buffer.push_str(&gen_transition(curr_layer.as_ref(), next_layer, brace));
-                curr_layer = next_layer.cloned();
+                push_brace(
+                    &mut buffer,
+                    brace,
+                    current_layer.as_ref(),
+                    layers.last(),
+                    shell,
+                );
+                current_layer = layers.last().copied();
             }
             _ => (),
         }
@@ -60,11 +78,13 @@ fn generate(template: &str) -> Result<String, String> {
     }
 
     if let Some(last_brace) = last_brace {
-        buffer.push_str(&gen_transition(
-            curr_layer.as_ref(),
-            layers.last(),
+        push_brace(
+            &mut buffer,
             last_brace,
-        ));
+            current_layer.as_ref(),
+            layers.last(),
+            shell,
+        );
     }
 
     Ok(buffer)
@@ -97,48 +117,60 @@ fn read_meta(chars: &mut Chars) -> Result<Layer, String> {
     Ok(Layer { fg, bg })
 }
 
-fn gen_transition(curr_layer: Option<&Layer>, next_layer: Option<&Layer>, brace: char) -> String {
-    let mut buffer = String::new();
-
+fn push_brace(
+    buffer: &mut String,
+    brace: char,
+    current: Option<&Layer>,
+    next: Option<&Layer>,
+    shell: Shell,
+) {
     if brace == OPEN_BRACE {
-        if let Some(next_layer) = next_layer {
-            esc_change_fg(next_layer.bg, &mut buffer);
+        if let Some(next) = next {
+            push_escape_code(buffer, Escape::Foreground(next.bg), shell);
             buffer.push('');
-            esc_change_fg(next_layer.fg, &mut buffer);
-            esc_change_bg(next_layer.bg, &mut buffer);
+            push_escape_code(buffer, Escape::Foreground(next.fg), shell);
+            push_escape_code(buffer, Escape::Background(next.bg), shell);
         }
     } else if brace == CLOSE_BRACE {
-        if let Some(next_layer) = next_layer {
-            esc_change_bg(next_layer.bg, &mut buffer);
-        } else {
-            esc_reset_color(&mut buffer);
-        }
+        let escape = match next {
+            Some(next) => Escape::Background(next.bg),
+            None => Escape::Reset
+        };
 
-        if let Some(curr_layer) = curr_layer {
-            esc_change_fg(curr_layer.bg, &mut buffer);
+        push_escape_code(buffer, escape, shell);
+
+        if let Some(current) = current {
+            push_escape_code(buffer, Escape::Foreground(current.bg), shell);
             buffer.push('');
         }
 
-        if let Some(next_layer) = next_layer {
-            esc_change_fg(next_layer.fg, &mut buffer);
-        } else {
-            esc_reset_color(&mut buffer);
-        }
+        let escape = match next {
+            Some(next) => Escape::Foreground(next.fg),
+            None => Escape::Reset
+        };
+
+        push_escape_code(buffer, escape, shell);
+    }
+}
+
+fn push_escape_code(buffer: &mut String, escape: Escape, shell: Shell) {
+    let escape = match escape {
+        Escape::Foreground(color) => format!("38;5;{}", color),
+        Escape::Background(color) => format!("48;5;{}", color),
+        Escape::Reset => "0".to_string(),
+    };
+
+    if let Shell::Zsh = shell {
+        buffer.push_str("%{");
     }
 
-    buffer
-}
+    buffer.push_str("\x1b[");
+    buffer.push_str(&escape);
+    buffer.push('m');
 
-fn esc_change_fg(color: u8, buffer: &mut String) {
-    buffer.push_str(&format!("\x1b[38;5;{}m", color));
-}
-
-fn esc_change_bg(color: u8, buffer: &mut String) {
-    buffer.push_str(&format!("\x1b[48;5;{}m", color));
-}
-
-fn esc_reset_color(buffer: &mut String) {
-    buffer.push_str("\x1b[0m");
+    if let Shell::Zsh = shell {
+        buffer.push_str("%}");
+    }
 }
 
 #[cfg(test)]
@@ -148,7 +180,7 @@ mod tests {
     #[test]
     fn one_layer() {
         assert_eq!(
-            generate("{0,1:xxx}"),
+            generate("{0,1:xxx}", Shell::Any),
             Ok("\x1b[38;5;1m\x1b[38;5;0m\x1b[48;5;1mxxx\x1b[0m\x1b[38;5;1m\x1b[0m".to_string())
         );
     }
@@ -156,7 +188,7 @@ mod tests {
     #[test]
     fn sequential_layers() {
         assert_eq!(
-            generate("{0,1:xxx} {100,200:yyy}"),
+            generate("{0,1:xxx} {100,200:yyy}", Shell::Any),
             Ok("\x1b[38;5;1m\x1b[38;5;0m\x1b[48;5;1mxxx\x1b[0m\x1b[38;5;1m\x1b[0m \x1b[38;5;200m\x1b[38;5;100m\x1b[48;5;200myyy\x1b[0m\x1b[38;5;200m\x1b[0m".to_string())
         );
     }
@@ -164,7 +196,7 @@ mod tests {
     #[test]
     fn overlap_left() {
         assert_eq!(
-            generate("{0,1:xxx {100,200:yyy}}"),
+            generate("{0,1:xxx {100,200:yyy}}", Shell::Any),
             Ok("\x1b[38;5;1m\x1b[38;5;0m\x1b[48;5;1mxxx \x1b[38;5;200m\x1b[38;5;100m\x1b[48;5;200myyy\x1b[0m\x1b[38;5;200m\x1b[0m".to_string())
         );
     }
@@ -172,7 +204,7 @@ mod tests {
     #[test]
     fn overlap_right() {
         assert_eq!(
-            generate("{0,1:{100,200:yyy} xxx}"),
+            generate("{0,1:{100,200:yyy} xxx}", Shell::Any),
             Ok("\x1b[38;5;200m\x1b[38;5;100m\x1b[48;5;200myyy\x1b[48;5;1m\x1b[38;5;200m\x1b[38;5;0m xxx\x1b[0m\x1b[38;5;1m\x1b[0m".to_string())
         );
     }
@@ -180,7 +212,7 @@ mod tests {
     #[test]
     fn bad_fg() {
         assert_eq!(
-            generate("{999,1:xxx}"),
+            generate("{999,1:xxx}", Shell::Any),
             Err("Invalid fg: number too large to fit in target type".to_string())
         );
     }
@@ -188,7 +220,7 @@ mod tests {
     #[test]
     fn bad_bg() {
         assert_eq!(
-            generate("{1,-9:xxx}"),
+            generate("{1,-9:xxx}", Shell::Any),
             Err("Invalid bg: invalid digit found in string".to_string())
         );
     }
@@ -196,7 +228,7 @@ mod tests {
     #[test]
     fn incomplete_meta() {
         assert_eq!(
-            generate("{1:xxx}"),
+            generate("{1:xxx}", Shell::Any),
             Err("Both fg and bg should be specified".to_string())
         );
     }
