@@ -1,7 +1,7 @@
 use std::process;
 
 use clap::{App, Arg, ArgMatches};
-use promptgen::Shell;
+use bubbleprompt::Shell;
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
@@ -41,7 +41,7 @@ fn main() {
         })
         .unwrap_or(Shell::Any);
 
-    match promptgen::generate(&template, shell) {
+    match bubbleprompt::generate(&template, shell) {
         Ok(result) => {
             println!("{}", result);
         }

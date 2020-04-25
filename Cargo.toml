@@ -1,5 +1,5 @@
 [package]
-name = "promptgen"
+name = "bubbleprompt"
 version = "0.1.0"
 authors = ["lastsecondsave <lastsecondsave@outlook.com>"]
 edition = "2018"
