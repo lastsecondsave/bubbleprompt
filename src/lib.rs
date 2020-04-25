@@ -8,7 +8,7 @@ enum Escape {
 }
 
 #[derive(Copy, Clone)]
-struct Layer {
+struct Section {
     fg: u8,
     bg: u8,
 }
@@ -26,8 +26,8 @@ const CLOSE_BRACE: char = '}';
 pub fn generate(template: &str, shell: Shell) -> Result<String, String> {
     let mut buffer = String::new();
 
-    let mut layers: Vec<Layer> = Vec::new();
-    let mut current_layer: Option<Layer> = None;
+    let mut sections: Vec<Section> = Vec::new();
+    let mut active_section: Option<Section> = None;
     let mut last_brace: Option<char> = None;
 
     let mut chars = template.chars();
@@ -38,22 +38,22 @@ pub fn generate(template: &str, shell: Shell) -> Result<String, String> {
                 push_brace(
                     &mut buffer,
                     brace,
-                    current_layer.as_ref(),
-                    layers.last(),
+                    active_section.as_ref(),
+                    sections.last(),
                     shell,
                 );
-                current_layer = layers.last().copied();
+                active_section = sections.last().copied();
             }
             _ => (),
         }
 
         last_brace = match c {
             OPEN_BRACE => {
-                layers.push(read_meta(&mut chars)?);
+                sections.push(read_meta(&mut chars)?);
                 Some(OPEN_BRACE)
             }
             CLOSE_BRACE => {
-                layers.pop();
+                sections.pop();
                 Some(CLOSE_BRACE)
             }
             _ => {
@@ -67,8 +67,8 @@ pub fn generate(template: &str, shell: Shell) -> Result<String, String> {
         push_brace(
             &mut buffer,
             last_brace,
-            current_layer.as_ref(),
-            layers.last(),
+            active_section.as_ref(),
+            sections.last(),
             shell,
         );
     }
@@ -76,7 +76,7 @@ pub fn generate(template: &str, shell: Shell) -> Result<String, String> {
     Ok(buffer)
 }
 
-fn read_meta(chars: &mut Chars) -> Result<Layer, String> {
+fn read_meta(chars: &mut Chars) -> Result<Section, String> {
     let mut buffer = String::new();
 
     let meta: Vec<&str> = {
@@ -100,14 +100,14 @@ fn read_meta(chars: &mut Chars) -> Result<Layer, String> {
         Err(e) => return Err(format!("Invalid bg: {}", e.to_string())),
     };
 
-    Ok(Layer { fg, bg })
+    Ok(Section { fg, bg })
 }
 
 fn push_brace(
     buffer: &mut String,
     brace: char,
-    current: Option<&Layer>,
-    next: Option<&Layer>,
+    current: Option<&Section>,
+    next: Option<&Section>,
     shell: Shell,
 ) {
     if brace == OPEN_BRACE {
@@ -168,7 +168,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn one_layer() {
+    fn one_section() {
         assert_eq!(
             generate("{0,1:xxx}", Shell::Any),
             Ok("\x1b[38;5;1m\x1b[38;5;0m\x1b[48;5;1mxxx\x1b[0m\x1b[38;5;1m\x1b[0m".to_string())
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn one_layer_zsh() {
+    fn one_section_zsh() {
         assert_eq!(
             generate("{0,1:xxx}", Shell::Zsh),
             Ok("%{\x1b[38;5;1m%}%{\x1b[38;5;0m%}%{\x1b[48;5;1m%}xxx%{\x1b[0m%}%{\x1b[38;5;1m%}%{\x1b[0m%}".to_string())
@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn one_layer_bash() {
+    fn one_section_bash() {
         assert_eq!(
             generate("{0,1:xxx}", Shell::Bash),
             Ok("\\[\x1b[38;5;1m\\]\\[\x1b[38;5;0m\\]\\[\x1b[48;5;1m\\]xxx\\[\x1b[0m\\]\\[\x1b[38;5;1m\\]\\[\x1b[0m\\]".to_string())
@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn sequential_layers() {
+    fn sequential_sections() {
         assert_eq!(
             generate("{0,1:xxx} {100,200:yyy}", Shell::Any),
             Ok("\x1b[38;5;1m\x1b[38;5;0m\x1b[48;5;1mxxx\x1b[0m\x1b[38;5;1m\x1b[0m \x1b[38;5;200m\x1b[38;5;100m\x1b[48;5;200myyy\x1b[0m\x1b[38;5;200m\x1b[0m".to_string())
