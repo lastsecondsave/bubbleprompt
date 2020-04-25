@@ -17,6 +17,7 @@ struct Layer {
 pub enum Shell {
     Any,
     Zsh,
+    Bash,
 }
 
 const OPEN_BRACE: char = '{';
@@ -145,16 +146,20 @@ fn push_escape_code(buffer: &mut String, escape: Escape, shell: Shell) {
         Escape::Reset => "0".to_string(),
     };
 
-    if let Shell::Zsh = shell {
-        buffer.push_str("%{");
+    match shell {
+        Shell::Zsh => buffer.push_str("%{"),
+        Shell::Bash => buffer.push_str("\\["),
+        _ => (),
     }
 
     buffer.push_str("\x1b[");
     buffer.push_str(&escape);
     buffer.push('m');
 
-    if let Shell::Zsh = shell {
-        buffer.push_str("%}");
+    match shell {
+        Shell::Zsh => buffer.push_str("%}"),
+        Shell::Bash => buffer.push_str("\\]"),
+        _ => (),
     }
 }
 
@@ -167,6 +172,22 @@ mod tests {
         assert_eq!(
             generate("{0,1:xxx}", Shell::Any),
             Ok("\x1b[38;5;1m\x1b[38;5;0m\x1b[48;5;1mxxx\x1b[0m\x1b[38;5;1m\x1b[0m".to_string())
+        );
+    }
+
+    #[test]
+    fn one_layer_zsh() {
+        assert_eq!(
+            generate("{0,1:xxx}", Shell::Zsh),
+            Ok("%{\x1b[38;5;1m%}%{\x1b[38;5;0m%}%{\x1b[48;5;1m%}xxx%{\x1b[0m%}%{\x1b[38;5;1m%}%{\x1b[0m%}".to_string())
+        );
+    }
+
+    #[test]
+    fn one_layer_bash() {
+        assert_eq!(
+            generate("{0,1:xxx}", Shell::Bash),
+            Ok("\\[\x1b[38;5;1m\\]\\[\x1b[38;5;0m\\]\\[\x1b[48;5;1m\\]xxx\\[\x1b[0m\\]\\[\x1b[38;5;1m\\]\\[\x1b[0m\\]".to_string())
         );
     }
 
