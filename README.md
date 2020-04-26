@@ -16,7 +16,7 @@ $ cargo install --path .
 
 Call the binary from your profile:
 
-```shell
+``` bash
 # For Zsh
 PROMPT=$(bubbleprompt --shell zsh '{0,6:ZSH {0,15:%~}} ')
 
