@@ -1,7 +1,7 @@
 use std::process;
 
-use clap::{App, Arg, ArgMatches};
 use bubbleprompt::Shell;
+use clap::{App, Arg, ArgMatches};
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
@@ -37,9 +37,9 @@ fn main() {
         .map(|shell| match shell.as_ref() {
             "zsh" => Shell::Zsh,
             "bash" => Shell::Bash,
-            _ => Shell::Any,
+            _ => Shell::None,
         })
-        .unwrap_or(Shell::Any);
+        .unwrap_or(Shell::None);
 
     match bubbleprompt::generate(&template, shell) {
         Ok(result) => {
